@@ -2,28 +2,28 @@
   "metadata": {
     "total": 56,
     "version": "OPTIMIZED (V2)",
-    "timestamp": "2026-04-21 17:40:14",
+    "timestamp": "2026-04-21 17:48:24",
     "versions_compared": [
       "V1",
       "V2"
     ]
   },
   "metrics": {
-    "avg_score": 3.0357,
+    "avg_score": 3.6964,
     "hit_rate": 0.8214,
-    "agreement_rate": 0.75
+    "agreement_rate": 0.8393
   },
   "regression": {
     "v1": {
-      "score": 3.0357,
+      "score": 3.6464,
       "hit_rate": 0.8214,
-      "judge_agreement": 0.75
+      "judge_agreement": 0.8259
     },
     "v2": {
-      "score": 3.0357,
+      "score": 3.6964,
       "hit_rate": 0.8214,
-      "judge_agreement": 0.75
+      "judge_agreement": 0.8393
     },
-    "decision": "ROLLBACK"
+    "decision": "RELEASE"
   }
 }

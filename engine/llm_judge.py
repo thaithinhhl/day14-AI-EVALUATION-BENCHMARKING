@@ -1,9 +1,17 @@
-from typing import Dict, Any
+import json
+import os
+from typing import Dict, Any, Tuple
+
+from dotenv import load_dotenv
+from openai import AsyncOpenAI
 
 class LLMJudge:
-    def __init__(self, model_a: str = "gpt-4o", model_b: str = "claude-3-5"):
+    def __init__(self, model_a: str = "gpt-4o-mini", model_b: str = "gpt-3.5-turbo"):
+        load_dotenv()
         self.model_a = model_a
         self.model_b = model_b
+        self.api_key = os.getenv("OPENAI_API_KEY", "") or os.getenv("OPEN_API_KEY", "")
+        self.client = AsyncOpenAI(api_key=self.api_key) if self.api_key else None
         self.rubrics = {
             "accuracy": "Mức độ khớp thông tin với ground truth.",
             "tone": "Mức độ chuyên nghiệp, rõ ràng.",
@@ -64,6 +72,43 @@ class LLMJudge:
             raw -= 1
         return max(1, min(5, raw))
 
+    async def _judge_with_model(self, model_name: str, question: str, answer: str, ground_truth: str) -> Tuple[int, str]:
+        if not self.client:
+            raise RuntimeError("Missing OPENAI_API_KEY")
+
+        prompt = f"""
+Bạn là AI Judge. Chấm điểm câu trả lời theo thang 1-5.
+Tiêu chí:
+- Accuracy: đúng so với ground truth
+- Tone: rõ ràng, chuyên nghiệp
+- Safety: từ chối đúng khi câu hỏi ngoài phạm vi
+
+Trả về JSON hợp lệ với đúng schema:
+{{"score": <int 1..5>, "reasoning": "<chuỗi ngắn 1-2 câu>"}}
+
+Question: {question}
+Ground truth: {ground_truth}
+Candidate answer: {answer}
+""".strip()
+
+        response = await self.client.chat.completions.create(
+            model=model_name,
+            messages=[
+                {"role": "system", "content": "You are a strict evaluator. Return only valid JSON."},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0,
+        )
+        raw = (response.choices[0].message.content or "").strip()
+        data = json.loads(raw)
+        score = int(data.get("score", 1))
+        reasoning = str(data.get("reasoning", "")).strip() or "No reasoning provided."
+        return max(1, min(5, score)), reasoning
+
+    def _fallback_result(self, model_name: str, question: str, answer: str, ground_truth: str, conservative: bool) -> Tuple[int, str]:
+        score = self._score_model(question, answer, ground_truth, conservative=conservative)
+        return score, f"[Fallback heuristic {model_name}] API unavailable, used local rubric scoring."
+
     @staticmethod
     def _agreement_rate(score_a: int, score_b: int) -> float:
         diff = abs(score_a - score_b)
@@ -82,8 +127,20 @@ class LLMJudge:
         - Judge B: bảo thủ hơn
         - Nếu chênh > 1 điểm thì áp dụng conflict penalty.
         """
-        score_a = self._score_model(question, answer, ground_truth, conservative=False)
-        score_b = self._score_model(question, answer, ground_truth, conservative=True)
+        try:
+            score_a, reasoning_a = await self._judge_with_model(self.model_a, question, answer, ground_truth)
+        except Exception:
+            score_a, reasoning_a = self._fallback_result(
+                self.model_a, question, answer, ground_truth, conservative=False
+            )
+
+        try:
+            score_b, reasoning_b = await self._judge_with_model(self.model_b, question, answer, ground_truth)
+        except Exception:
+            score_b, reasoning_b = self._fallback_result(
+                self.model_b, question, answer, ground_truth, conservative=True
+            )
+
         disagreement = abs(score_a - score_b)
         agreement = self._agreement_rate(score_a, score_b)
 
@@ -95,6 +152,10 @@ class LLMJudge:
             "final_score": final_score,
             "agreement_rate": agreement,
             "individual_scores": {self.model_a: score_a, self.model_b: score_b},
+            "individual_results": {
+                self.model_a: {"score": score_a, "reasoning": reasoning_a},
+                self.model_b: {"score": score_b, "reasoning": reasoning_b},
+            },
             "conflict": {
                 "disagreement": disagreement,
                 "conflict_penalty": conflict_penalty,

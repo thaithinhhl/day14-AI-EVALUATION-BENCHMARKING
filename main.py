@@ -106,12 +106,15 @@ def format_results_for_report(results: List[Dict]) -> List[Dict]:
         retrieval = ragas.get("retrieval", {})
         judge = item.get("judge", {})
         individual_scores = judge.get("individual_scores", {})
+        individual_results = judge.get("individual_results", {})
 
         model_names = list(individual_scores.keys())
         model_a = model_names[0] if len(model_names) > 0 else "model_a"
         model_b = model_names[1] if len(model_names) > 1 else "model_b"
         score_a = individual_scores.get(model_a, 0)
         score_b = individual_scores.get(model_b, 0)
+        reasoning_a = individual_results.get(model_a, {}).get("reasoning", "")
+        reasoning_b = individual_results.get(model_b, {}).get("reasoning", "")
 
         formatted.append(
             {
@@ -130,11 +133,11 @@ def format_results_for_report(results: List[Dict]) -> List[Dict]:
                     "individual_results": {
                         model_a: {
                             "score": score_a,
-                            "reasoning": f"[Mock {model_a}] Heuristic score",
+                            "reasoning": reasoning_a or f"[{model_a}] No reasoning.",
                         },
                         model_b: {
                             "score": score_b,
-                            "reasoning": f"[Mock {model_b}] Heuristic score",
+                            "reasoning": reasoning_b or f"[{model_b}] No reasoning.",
                         },
                     },
                     "status": "consensus",
