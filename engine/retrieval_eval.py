@@ -1,4 +1,4 @@
-from typing import List, Dict
+from typing import List, Dict, Any
 
 class RetrievalEvaluator:
     def __init__(self):
@@ -23,10 +23,39 @@ class RetrievalEvaluator:
                 return 1.0 / (i + 1)
         return 0.0
 
-    async def evaluate_batch(self, dataset: List[Dict]) -> Dict:
+    def evaluate_case(self, expected_ids: List[str], retrieved_ids: List[str], top_k: int = 3) -> Dict[str, float]:
+        hit_rate = self.calculate_hit_rate(expected_ids, retrieved_ids, top_k=top_k)
+        mrr = self.calculate_mrr(expected_ids, retrieved_ids)
+        return {"hit_rate": hit_rate, "mrr": mrr}
+
+    async def evaluate_batch(self, dataset: List[Dict[str, Any]], top_k: int = 3) -> Dict[str, Any]:
         """
         Chạy eval cho toàn bộ bộ dữ liệu.
-        Dataset cần có trường 'expected_retrieval_ids' và Agent trả về 'retrieved_ids'.
+        Mỗi sample cần có:
+        - expected_retrieval_ids: List[str]
+        - retrieved_ids: List[str]
         """
-        # Placeholder logic
-        return {"avg_hit_rate": 0.85, "avg_mrr": 0.72}
+        if not dataset:
+            return {"avg_hit_rate": 0.0, "avg_mrr": 0.0, "per_case": []}
+
+        per_case = []
+        for item in dataset:
+            expected_ids = item.get("expected_retrieval_ids", [])
+            retrieved_ids = item.get("retrieved_ids", [])
+            metrics = self.evaluate_case(expected_ids, retrieved_ids, top_k=top_k)
+            per_case.append(
+                {
+                    "question": item.get("question", ""),
+                    "expected_retrieval_ids": expected_ids,
+                    "retrieved_ids": retrieved_ids,
+                    **metrics,
+                }
+            )
+
+        avg_hit_rate = sum(x["hit_rate"] for x in per_case) / len(per_case)
+        avg_mrr = sum(x["mrr"] for x in per_case) / len(per_case)
+        return {
+            "avg_hit_rate": avg_hit_rate,
+            "avg_mrr": avg_mrr,
+            "per_case": per_case,
+        }

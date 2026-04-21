@@ -1,7 +1,6 @@
 import asyncio
 import time
 from typing import List, Dict
-# Import other components...
 
 class BenchmarkRunner:
     def __init__(self, agent, evaluator, judge):
@@ -28,8 +27,12 @@ class BenchmarkRunner:
         
         return {
             "test_case": test_case["question"],
+            "expected_answer": test_case.get("expected_answer", ""),
+            "expected_retrieval_ids": test_case.get("expected_retrieval_ids", []),
             "agent_response": response["answer"],
+            "retrieved_ids": response.get("metadata", {}).get("sources", []),
             "latency": latency,
+            "tokens_used": response.get("metadata", {}).get("tokens_used", 0),
             "ragas": ragas_scores,
             "judge": judge_result,
             "status": "fail" if judge_result["final_score"] < 3 else "pass"
