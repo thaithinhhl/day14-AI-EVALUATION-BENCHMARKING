@@ -98,6 +98,53 @@ def should_release(v1_summary: Dict, v2_summary: Dict) -> Tuple[bool, Dict]:
     return all(checks.values()), checks
 
 
+def format_results_for_report(results: List[Dict]) -> List[Dict]:
+    formatted = []
+
+    for item in results:
+        ragas = item.get("ragas", {})
+        retrieval = ragas.get("retrieval", {})
+        judge = item.get("judge", {})
+        individual_scores = judge.get("individual_scores", {})
+
+        model_names = list(individual_scores.keys())
+        model_a = model_names[0] if len(model_names) > 0 else "model_a"
+        model_b = model_names[1] if len(model_names) > 1 else "model_b"
+        score_a = individual_scores.get(model_a, 0)
+        score_b = individual_scores.get(model_b, 0)
+
+        formatted.append(
+            {
+                "test_case": item.get("test_case", ""),
+                "agent_response": item.get("agent_response", ""),
+                "latency": item.get("latency", 0.0),
+                "ragas": {
+                    "hit_rate": retrieval.get("hit_rate", 0.0),
+                    "mrr": retrieval.get("mrr", 0.0),
+                    "faithfulness": ragas.get("faithfulness", 0.0),
+                    "relevancy": ragas.get("relevancy", 0.0),
+                },
+                "judge": {
+                    "final_score": judge.get("final_score", 0.0),
+                    "agreement_rate": judge.get("agreement_rate", 0.0),
+                    "individual_results": {
+                        model_a: {
+                            "score": score_a,
+                            "reasoning": f"[Mock {model_a}] Heuristic score",
+                        },
+                        model_b: {
+                            "score": score_b,
+                            "reasoning": f"[Mock {model_b}] Heuristic score",
+                        },
+                    },
+                    "status": "consensus",
+                },
+                "status": item.get("status", "fail"),
+            }
+        )
+    return formatted
+
+
 async def run_benchmark_with_results(agent, agent_version: str, dataset: List[Dict]):
     print(f"🚀 Khởi động Benchmark cho {agent_version} với {len(dataset)} cases...")
     start_time = time.perf_counter()
@@ -134,19 +181,29 @@ async def main():
 
     os.makedirs("reports", exist_ok=True)
     full_summary = {
-        "metadata": v2_summary["metadata"],
-        "metrics": v2_summary["metrics"],
+        "metadata": {
+            "total": v2_summary["metadata"]["total"],
+            "version": "OPTIMIZED (V2)",
+            "timestamp": v2_summary["metadata"]["timestamp"],
+            "versions_compared": ["V1", "V2"],
+        },
+        "metrics": {
+            "avg_score": round(v2_summary["metrics"]["avg_score"], 4),
+            "hit_rate": round(v2_summary["metrics"]["hit_rate"], 4),
+            "agreement_rate": round(v2_summary["metrics"]["agreement_rate"], 4),
+        },
         "regression": {
-            "baseline_version": v1_summary["metadata"]["version"],
-            "candidate_version": v2_summary["metadata"]["version"],
-            "delta": {
-                "avg_score": round(delta, 4),
-                "hit_rate": round(hit_delta, 4),
-                "cost_per_case_usd": round(cost_delta, 6),
-                "avg_latency_seconds": round(latency_delta, 4),
+            "v1": {
+                "score": round(v1_summary["metrics"]["avg_score"], 4),
+                "hit_rate": round(v1_summary["metrics"]["hit_rate"], 4),
+                "judge_agreement": round(v1_summary["metrics"]["agreement_rate"], 4),
             },
-            "release_decision": "APPROVE" if release else "ROLLBACK",
-            "release_checks": release_checks,
+            "v2": {
+                "score": round(v2_summary["metrics"]["avg_score"], 4),
+                "hit_rate": round(v2_summary["metrics"]["hit_rate"], 4),
+                "judge_agreement": round(v2_summary["metrics"]["agreement_rate"], 4),
+            },
+            "decision": "RELEASE" if release else "ROLLBACK",
         },
     }
     with open("reports/summary.json", "w", encoding="utf-8") as f:
@@ -154,8 +211,8 @@ async def main():
     with open("reports/benchmark_results.json", "w", encoding="utf-8") as f:
         json.dump(
             {
-                "baseline": {"summary": v1_summary, "results": v1_results},
-                "candidate": {"summary": v2_summary, "results": v2_results},
+                "v1": format_results_for_report(v1_results),
+                "v2": format_results_for_report(v2_results),
             },
             f,
             ensure_ascii=False,
